@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated dataset -- rebuild with prepare_data.py then augment.py
+sounds/
+
+# Runtime output
+detections.csv
+config.json
+results.json
+confusion_matrix.png
+session_test.wav
+
+# Machine-specific editor settings (absolute interpreter path)
+.vscode/
