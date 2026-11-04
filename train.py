@@ -72,28 +72,7 @@ def evaluate(model, X_tr, y_tr, X_val, y_val):
     return train_acc, val_acc
 
 
-def main():
-    rule("LOADING TRAINING DATA (FRS enabled)")
-    X, y, spk = create_dataset(TRAIN_DIR, use_frs=True, frs_mode="cepstral")
-
-    if len(X) == 0:
-        print("\nNo training data found. Run record.py first.")
-        return
-
-    print(f"\n  samples: {len(X)}   feature dim: {X.shape[1]}")
-    counts = {COMMANDS[i]: int(np.sum(y == i)) for i in range(len(COMMANDS))}
-    print(f"  per class: {counts}")
-    speakers = sorted(set(spk))
-    print(f"  speakers: {speakers}")
-
-    min_per_class = min(counts.values())
-    results["n_total"] = int(len(X))
-    results["per_class"] = counts
-    results["speakers"] = speakers
-
-    # ---------------------------------------------------------------
-    # 1. Learning curve
-    # ---------------------------------------------------------------
+def learning_curve(X, y, min_per_class):
     rule("1. LEARNING CURVE (SVM, stratified 75/25 split)")
     print(f"\n  {'total':>6}  {'per class':>9}  {'train acc':>9}  {'val acc':>8}  {'gap':>6}")
     print("  " + "-" * 48)
@@ -121,9 +100,8 @@ def main():
 
     results["learning_curve"] = curve
 
-    # ---------------------------------------------------------------
-    # 2. FRS on/off
-    # ---------------------------------------------------------------
+
+def frs_on_off(X, y):
     rule("2. FRS ON/OFF (full dataset, identical split)")
 
     X_nofrs, y_nofrs, _ = create_dataset(TRAIN_DIR, use_frs=False, frs_mode="cepstral")
@@ -147,9 +125,8 @@ def main():
     print(f"\n  FRS effect on validation accuracy: {delta:+.1%}")
     results["frs_compare"] = frs_compare
 
-    # ---------------------------------------------------------------
-    # 3. SVM vs kNN, same split
-    # ---------------------------------------------------------------
+
+def classifier_comparison(X, y):
     rule("3. CLASSIFIER COMPARISON (identical split, FRS features)")
 
     X_tr, X_val, y_tr, y_val = train_test_split(
@@ -180,9 +157,24 @@ def main():
         target_names=COMMANDS,
         zero_division=0))  # pyright: ignore[reportArgumentType]
 
-    # ---------------------------------------------------------------
-    # 4. Held-out test set
-    # ---------------------------------------------------------------
+
+def _save_confusion_plot(cm):
+    plt.figure(figsize=(7, 6))
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap="Blues",
+        xticklabels=COMMANDS, yticklabels=COMMANDS,
+        cbar_kws={"shrink": 0.8}, square=True,
+    )
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title("Confusion matrix, held-out test set")
+    plt.tight_layout()
+    plt.savefig("confusion_matrix.png", dpi=300, bbox_inches="tight")
+    plt.close()
+    print("\n  saved confusion_matrix.png")
+
+
+def held_out_test(X, y):
     rule("4. HELD-OUT TEST SET")
 
     X_test, y_test, spk_test = create_dataset(TEST_DIR, use_frs=True, frs_mode="cepstral")
@@ -191,74 +183,84 @@ def main():
         print("\n  No test data found — skipping.")
         print("  Record a test set with record.py in a separate session.")
         results["test"] = None
-    else:
-        final = fit_svm(X, y)          # train on everything for the final model
-        test_pred = final.predict(X_test)
-        test_acc = accuracy_score(y_test, test_pred)
+        return
 
-        print(f"\n  test samples: {len(X_test)}")
-        print(f"  TEST ACCURACY: {test_acc:.1%}")
-        print("\n  Test classification report:")
-        print(classification_report(
-            y_test, test_pred, labels=range(len(COMMANDS)),
-            target_names=COMMANDS,
-            zero_division=0))  # pyright: ignore[reportArgumentType]
+    final = fit_svm(X, y)          # train on everything for the final model
+    test_pred = final.predict(X_test)
+    test_acc = accuracy_score(y_test, test_pred)
 
-        cm = confusion_matrix(y_test, test_pred, labels=range(len(COMMANDS)))
-        print("  Confusion matrix (rows = actual, cols = predicted):")
-        print(f"  {'':10}" + "".join(f"{c[:6]:>8}" for c in COMMANDS))
-        for i, row in enumerate(cm):
-            print(f"  {COMMANDS[i]:10}" + "".join(f"{v:>8}" for v in row))
+    print(f"\n  test samples: {len(X_test)}")
+    print(f"  TEST ACCURACY: {test_acc:.1%}")
+    print("\n  Test classification report:")
+    print(classification_report(
+        y_test, test_pred, labels=range(len(COMMANDS)),
+        target_names=COMMANDS,
+        zero_division=0))  # pyright: ignore[reportArgumentType]
 
-        plt.figure(figsize=(7, 6))
-        sns.heatmap(
-            cm, annot=True, fmt="d", cmap="Blues",
-            xticklabels=COMMANDS, yticklabels=COMMANDS,
-            cbar_kws={"shrink": 0.8}, square=True,
-        )
-        plt.xlabel("Predicted")
-        plt.ylabel("Actual")
-        plt.title("Confusion matrix, held-out test set")
-        plt.tight_layout()
-        plt.savefig("confusion_matrix.png", dpi=300, bbox_inches="tight")
-        plt.close()
-        print("\n  saved confusion_matrix.png")
+    cm = confusion_matrix(y_test, test_pred, labels=range(len(COMMANDS)))
+    print("  Confusion matrix (rows = actual, cols = predicted):")
+    print(f"  {'':10}" + "".join(f"{c[:6]:>8}" for c in COMMANDS))
+    for i, row in enumerate(cm):
+        print(f"  {COMMANDS[i]:10}" + "".join(f"{v:>8}" for v in row))
 
-        joblib.dump(final, "vocal_command_model.pkl")
-        print("  saved vocal_command_model.pkl")
+    _save_confusion_plot(cm)
 
-        results["test"] = {
-            "n": int(len(X_test)),
-            "accuracy": round(test_acc, 4),
-            "confusion_matrix": cm.tolist(),
-        }
+    joblib.dump(final, "vocal_command_model.pkl")
+    print("  saved vocal_command_model.pkl")
 
-    # ---------------------------------------------------------------
-    # 5. Cross-speaker (leave-one-speaker-out)
-    # ---------------------------------------------------------------
-    if len(speakers) > 1:
-        rule("5. CROSS-SPEAKER (leave one speaker out)")
-        loso = {}
-        for held in speakers:
-            tr_mask = spk != held
-            te_mask = spk == held
-            if te_mask.sum() == 0 or len(set(y[tr_mask])) < len(COMMANDS):
-                continue
-            model = fit_svm(X[tr_mask], y[tr_mask])
-            acc = accuracy_score(y[te_mask], model.predict(X[te_mask]))
-            loso[held] = round(acc, 4)
-            print(f"  held out {held}: {acc:.1%}  ({int(te_mask.sum())} samples)")
-        if loso:
-            mean_acc = float(np.mean(list(loso.values())))
-            print(f"\n  mean cross-speaker accuracy: {mean_acc:.1%}")
-            results["cross_speaker"] = {"per_speaker": loso, "mean": round(mean_acc, 4)}
-    else:
+    results["test"] = {
+        "n": int(len(X_test)),
+        "accuracy": round(test_acc, 4),
+        "confusion_matrix": cm.tolist(),
+    }
+
+
+def cross_speaker(X, y, spk, speakers):
+    if len(speakers) <= 1:
         print("\n  (only one speaker — cross-speaker evaluation skipped)")
         results["cross_speaker"] = None
+        return
+    rule("5. CROSS-SPEAKER (leave one speaker out)")
+    loso = {}
+    for held in speakers:
+        tr_mask = spk != held
+        te_mask = spk == held
+        if te_mask.sum() == 0 or len(set(y[tr_mask])) < len(COMMANDS):
+            continue
+        model = fit_svm(X[tr_mask], y[tr_mask])
+        acc = accuracy_score(y[te_mask], model.predict(X[te_mask]))
+        loso[held] = round(acc, 4)
+        print(f"  held out {held}: {acc:.1%}  ({int(te_mask.sum())} samples)")
+    if loso:
+        mean_acc = float(np.mean(list(loso.values())))
+        print(f"\n  mean cross-speaker accuracy: {mean_acc:.1%}")
+        results["cross_speaker"] = {"per_speaker": loso, "mean": round(mean_acc, 4)}
 
-    # ---------------------------------------------------------------
-    # Summary
-    # ---------------------------------------------------------------
+
+def main():
+    rule("LOADING TRAINING DATA (FRS enabled)")
+    X, y, spk = create_dataset(TRAIN_DIR, use_frs=True, frs_mode="cepstral")
+
+    if len(X) == 0:
+        print("\nNo training data found. Run record.py first.")
+        return
+
+    print(f"\n  samples: {len(X)}   feature dim: {X.shape[1]}")
+    counts = {COMMANDS[i]: int(np.sum(y == i)) for i in range(len(COMMANDS))}
+    print(f"  per class: {counts}")
+    speakers = sorted(set(spk))
+    print(f"  speakers: {speakers}")
+
+    results["n_total"] = int(len(X))
+    results["per_class"] = counts
+    results["speakers"] = speakers
+
+    learning_curve(X, y, min(counts.values()))
+    frs_on_off(X, y)
+    classifier_comparison(X, y)
+    held_out_test(X, y)
+    cross_speaker(X, y, spk, speakers)
+
     rule("SUMMARY")
     print(json.dumps(results, indent=2))
 
