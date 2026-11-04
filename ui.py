@@ -15,7 +15,6 @@ the Tk thread drains it on a timer, because Tkinter is not thread-safe.
 import os
 import queue
 import sys
-import threading
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -23,10 +22,10 @@ from tkinter import ttk
 from typing import Optional, cast
 import numpy as np
 
-from features import SAMPLE_RATE, COMMANDS
+from features import COMMANDS
 from listen import (Config, Classifier, CommandListener, DetectionLog,
                     AudioEngine, CONFIG_PATH, MODEL_PATH, LOG_PATH)
-from transports import COMMAND_KEYS, key_name, make_transport, TransportError
+from transports import make_transport, TransportError
 
 # ---------------------------------------------------------------- palette
 BG = "#12181d"

@@ -5,11 +5,10 @@ Saves a bundle rather than a bare estimator, so the exact feature settings
 used at training time travel with the model and the live path cannot drift.
 """
 
-import argparse, os, json
-import numpy as np
+import argparse, os
 import joblib
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score
 
 from features import create_dataset, COMMANDS, SAMPLE_RATE
 
