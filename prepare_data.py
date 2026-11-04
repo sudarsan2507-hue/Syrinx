@@ -26,24 +26,22 @@ RMS_THRESH = 0.15   # activity threshold, relative to peak RMS
 MIN_EVENT = 0.02
 
 
-def segments(y, sr, cls):
-    """Return list of (start_sample, end_sample) base events."""
-    if cls not in SUSTAINED:
-        # transients: onset detection finds each tap/pop, which RMS runs merge
-        on = librosa.onset.onset_detect(y=y, sr=sr, hop_length=128, units="samples",
-                                        backtrack=True, delta=0.10, wait=3)
-        n = int(PAD * sr)
-        out = []
-        for st in on:
-            a = max(0, int(st) - int(0.02 * sr))
-            b = min(a + n, len(y))
-            if b - a >= int(0.10 * sr) and np.max(np.abs(y[a:b])) > 0.10:
-                out.append((a, b))
-        return out
-    rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=256)[0]
-    if rms.max() <= 0:
-        return []
-    act = rms / rms.max() > RMS_THRESH
+def _transient_segments(y, sr):
+    """Onset detection finds each tap/pop, which RMS runs merge."""
+    on = librosa.onset.onset_detect(y=y, sr=sr, hop_length=128, units="samples",
+                                    backtrack=True, delta=0.10, wait=3)
+    n = int(PAD * sr)
+    out = []
+    for st in on:
+        a = max(0, int(st) - int(0.02 * sr))
+        b = min(a + n, len(y))
+        if b - a >= int(0.10 * sr) and np.max(np.abs(y[a:b])) > 0.10:
+            out.append((a, b))
+    return out
+
+
+def _active_runs(act):
+    """(start, end) frame indices of each run of active frames."""
     runs, cur = [], None
     for i, a in enumerate(act):
         if a and cur is None:
@@ -52,39 +50,81 @@ def segments(y, sr, cls):
             runs.append((cur, i)); cur = None
     if cur is not None:
         runs.append((cur, len(act)))
+    return runs
 
+
+def _run_segments(s0, e0, y, sr, cls):
+    """Windows for one active run: overlapping windows if sustained and long, else one padded clip."""
+    dur = (e0 - s0) / sr
+    if dur < MIN_EVENT:
+        return []
+    if cls in SUSTAINED and dur >= WIN:
+        n, h = int(WIN * sr), int(HOP_W * sr)
+        return [(st, st + n) for st in range(s0, e0 - n + 1, h)]
+    n = int(PAD * sr)
+    c = (s0 + e0) // 2
+    st = max(0, c - n // 2)
+    return [(st, min(st + n, len(y)))]
+
+
+def segments(y, sr, cls):
+    """Return list of (start_sample, end_sample) base events."""
+    if cls not in SUSTAINED:
+        return _transient_segments(y, sr)
+    rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=256)[0]
+    if rms.max() <= 0:
+        return []
+    act = rms / rms.max() > RMS_THRESH
     out = []
-    for s, e in runs:
-        s0, e0 = s * 256, min(e * 256, len(y))
-        dur = (e0 - s0) / sr
-        if dur < MIN_EVENT:
-            continue
-        if cls in SUSTAINED and dur >= WIN:
-            n, h = int(WIN * sr), int(HOP_W * sr)
-            for st in range(s0, e0 - n + 1, h):
-                out.append((st, st + n))
-        else:
-            n = int(PAD * sr)
-            c = (s0 + e0) // 2
-            st = max(0, c - n // 2)
-            out.append((st, min(st + n, len(y))))
+    for s, e in _active_runs(act):
+        out.extend(_run_segments(s * 256, min(e * 256, len(y)), y, sr, cls))
     return out
+
+
+def _load_inventory():
+    inventory = {}
+    for folder, cls in FOLDER_TO_CLASS.items():
+        files = sorted(glob.glob(os.path.join("Recordings", folder, "*.ogg")))
+        per_file = []
+        for f in files:
+            y, _ = librosa.load(f, sr=SR)
+            y = y / (np.max(np.abs(y)) + 1e-9)
+            per_file.append((f, y, segments(y, SR, cls)))
+        inventory[cls] = per_file
+    return inventory
+
+
+def _split_class(cls, per_file, manifest):
+    """Add one class's segments to the train/test manifest. Returns the strategy used."""
+    if len(per_file) >= 2 and all(len(s) >= 2 for _, _, s in per_file):
+        hold = int(np.argmin([len(s) for _, _, s in per_file]))
+        for fi, (f, y, segs) in enumerate(per_file):
+            split = "test" if fi == hold else "train"
+            for si, (a, b) in enumerate(segs):
+                manifest[split].append((cls, y[a:b], f"f{fi}s{si}"))
+        return "hold out one whole recording (honest)"
+    for fi, (f, y, segs) in enumerate(per_file):
+        k = max(1, int(round(len(segs) * 0.30)))
+        for si, (a, b) in enumerate(segs):
+            split = "test" if si >= len(segs) - k else "train"
+            manifest[split].append((cls, y[a:b], f"f{fi}s{si}"))
+    return "time-disjoint tail of the one recording (OPTIMISTIC)"
+
+
+def _write_manifest(manifest):
+    for split in ("train", "test"):
+        for cls in FOLDER_TO_CLASS.values():
+            os.makedirs(os.path.join("sounds", split, cls), exist_ok=True)
+        for cls, seg, tag in manifest[split]:
+            p = os.path.join("sounds", split, cls, f"s1_{tag}.wav")
+            sf.write(p, seg, SR)
 
 
 def main():
     if os.path.isdir("sounds"):
         shutil.rmtree("sounds")
 
-    inventory = {}
-    for folder, cls in FOLDER_TO_CLASS.items():
-        files = sorted(glob.glob(os.path.join("Recordings", folder, "*.ogg")))
-        per_file = []
-        for fi, f in enumerate(files):
-            y, _ = librosa.load(f, sr=SR)
-            y = y / (np.max(np.abs(y)) + 1e-9)
-            segs = segments(y, SR, cls)
-            per_file.append((f, y, segs))
-        inventory[cls] = per_file
+    inventory = _load_inventory()
 
     print(f"{'class':9}{'files':>6}{'segments':>10}   split strategy")
     print("-" * 64)
@@ -92,28 +132,10 @@ def main():
     manifest = {"train": [], "test": []}
     for cls, per_file in inventory.items():
         total = sum(len(s) for _, _, s in per_file)
-        if len(per_file) >= 2 and all(len(s) >= 2 for _, _, s in per_file):
-            strategy = "hold out one whole recording (honest)"
-            hold = int(np.argmin([len(s) for _, _, s in per_file]))
-            for fi, (f, y, segs) in enumerate(per_file):
-                split = "test" if fi == hold else "train"
-                for si, (a, b) in enumerate(segs):
-                    manifest[split].append((cls, y[a:b], f"f{fi}s{si}"))
-        else:
-            strategy = "time-disjoint tail of the one recording (OPTIMISTIC)"
-            for fi, (f, y, segs) in enumerate(per_file):
-                k = max(1, int(round(len(segs) * 0.30)))
-                for si, (a, b) in enumerate(segs):
-                    split = "test" if si >= len(segs) - k else "train"
-                    manifest[split].append((cls, y[a:b], f"f{fi}s{si}"))
+        strategy = _split_class(cls, per_file, manifest)
         print(f"{cls:9}{len(per_file):>6}{total:>10}   {strategy}")
 
-    for split in ("train", "test"):
-        for cls in FOLDER_TO_CLASS.values():
-            os.makedirs(os.path.join("sounds", split, cls), exist_ok=True)
-        for cls, seg, tag in manifest[split]:
-            p = os.path.join("sounds", split, cls, f"s1_{tag}.wav")
-            sf.write(p, seg, SR)
+    _write_manifest(manifest)
 
     print()
     for split in ("train", "test"):
