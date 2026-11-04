@@ -1,4 +1,4 @@
-# Vocal media remote
+# Syrinx: a vocal media remote
 
 Control music on a phone by making noises at a laptop. Shush at it to pause,
 hum to resume, hiss for the previous track, pop for the next one, click and
