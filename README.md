@@ -78,14 +78,14 @@ python listen.py --transport esp32     # USB serial -> ESP32 -> Bluetooth HID
 python listen.py --transport bluez     # Linux only, see the caveat below
 ```
 
-- **debug** — no hardware. Everything else works identically.
-- **esp32** — the real path. Flash `firmware/esp32_hid/`, pair the board with
+- **debug** - no hardware. Everything else works identically.
+- **esp32** - the real path. Flash `firmware/esp32_hid/`, pair the board with
   the phone, run with `--transport esp32`. See [firmware/README.md](firmware/README.md).
-- **bluez** — *not implemented.* The class detects the platform and fails with
+- **bluez** - *not implemented.* The class detects the platform and fails with
   an explanation. A working version needs `org.bluez.Profile1` registration on
   PSM 17/19, an SDP record, and `bluetoothd --noplugin=input`.
 
-Unavailable backends fall back — `bluez` → `esp32` → `debug` — printing the
+Unavailable backends fall back - `bluez` → `esp32` → `debug` - printing the
 reason at each step, so nothing silently does nothing.
 
 ## Tuning
@@ -97,7 +97,7 @@ reason at each step, so nothing silently does nothing.
 | Fires at nothing | raise `onset_threshold` |
 | Misses quiet sounds | lower `onset_threshold` |
 | Right sound, rejected | lower `min_confidence` (default 0.40) |
-| Feels sluggish | lower `post_onset_s` — but see the measurements below |
+| Feels sluggish | lower `post_onset_s` - but see the measurements below |
 | One sound fires twice | raise `cooldown_s` (default 1.5) |
 
 Latency is almost entirely `post_onset_s`, not compute: MFCC plus SVM takes
@@ -136,9 +136,9 @@ timestamp, predicted, confidence, decision, latency_ms, processing_ms
 
 | | |
 |---|---|
-| `webui.py` | localhost web UI — stdlib only, SSE, includes replay |
-| `ui.py` | desktop window — device panel, live meter, confidence bars, history |
-| `listen.py` | the loop — ring buffer, onsets, cooldown, dispatch, logging |
+| `webui.py` | localhost web UI - stdlib only, SSE, includes replay |
+| `ui.py` | desktop window - device panel, live meter, confidence bars, history |
+| `listen.py` | the loop - ring buffer, onsets, cooldown, dispatch, logging |
 | `transports.py` | `Transport` ABC and the three backends |
 | `calibrate.py` | measures the room, writes `config.json` |
 | `features.py` | MFCC extraction; takes a path **or** a numpy array |
@@ -160,12 +160,12 @@ mock board. One `xfail`: the model does not currently recognise `hum`.
 
 ## The model
 
-`vocal_command_model.pkl` is a bundle — the estimator plus the feature
-settings used to train it — so the live path reads its configuration from the
+`vocal_command_model.pkl` is a bundle - the estimator plus the feature
+settings used to train it - so the live path reads its configuration from the
 model and cannot drift out of sync with training. A bare estimator also loads.
 
 It is trained on 720 augmented clips derived from 40 segments of 9 phone
 recordings of one person. Held-out accuracy is 52.6%, and `hum` is recognised
 0 times out of 4. It is enough to demonstrate the loop, not enough to rely on.
-More recordings — several sessions, more than one voice — then
+More recordings - several sessions, more than one voice - then
 `python train_model.py`, is what improves it.

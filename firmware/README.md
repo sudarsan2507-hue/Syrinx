@@ -9,7 +9,7 @@ mic -> listen.py -> USB serial -> ESP32 -> Bluetooth HID -> phone
 
 ## What you need
 
-- An ESP32 with Bluetooth — ESP32 Dev Module, WROOM-32, DevKitC, most cheap
+- An ESP32 with Bluetooth - ESP32 Dev Module, WROOM-32, DevKitC, most cheap
   boards. **Not an ESP32-S2**, it has no Bluetooth.
 - A USB cable that carries data, not just power. This trips people up.
 
@@ -40,7 +40,7 @@ mic -> listen.py -> USB serial -> ESP32 -> Bluetooth HID -> phone
 2. On the phone: Bluetooth → pair with **Vocal Remote**.
 3. LED goes solid once connected.
 
-Play something on the phone before testing — most phones ignore media keys
+Play something on the phone before testing - most phones ignore media keys
 when nothing is loaded.
 
 ## Check it works
@@ -59,7 +59,7 @@ Open Serial Monitor at **115200 baud**, line ending **Newline**, and type:
 
 `ERR not-connected` means the serial side is fine but no phone is paired.
 
-**Close the Serial Monitor before running `listen.py`** — only one program can
+**Close the Serial Monitor before running `listen.py`** - only one program can
 hold the port.
 
 ## Run it
@@ -76,12 +76,12 @@ description. `python -m serial.tools.list_ports -v` shows what is attached.
 
 | Symptom | Cause |
 |---|---|
-| `no serial ports found` | cable is power-only, or driver missing — install the [CP210x](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers) or CH340 driver |
+| `no serial ports found` | cable is power-only, or driver missing - install the [CP210x](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers) or CH340 driver |
 | `could not open serial port: Access is denied` | Serial Monitor still open, or another `listen.py` running |
 | Connects, but no `PONG` | sketch not uploaded, or wrong baud |
-| `ERR not-connected` on every command | phone unpaired — check the LED is solid |
+| `ERR not-connected` on every command | phone unpaired - check the LED is solid |
 | Keys do nothing on the phone | no media app is playing; start something first |
-| Works, then dies after a while | usually USB power saving — try a different port or a powered hub |
+| Works, then dies after a while | usually USB power saving - try a different port or a powered hub |
 
 The Python side reconnects on its own: pull the cable and `listen.py` keeps
 running, reporting `link lost`, and picks the board up again when you plug it
